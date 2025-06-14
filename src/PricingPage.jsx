@@ -989,7 +989,13 @@ const PricingPage = () => {
                         <BudgetTab
                             totalRevenue={calculatedResults?.totalRevenue || 0}
                             calculatedProfit={calculatedResults?.calculatedProfit || 0}
+                            products={calculatedResults?.calculatedProducts || products} //{/* Pass main products state as a fallback for initial values */}
+                            actualCost={calculatedResults?.actualCost || actualCost}// {/* Pass actualCost as a fallback for initial values */}
                             loading={loading}
+                            // Pass additional initial state for hypothetical calculations in BudgetTab
+                            initialUseMargin={useMargin}
+                            initialTargetProfit={targetProfit}
+                            initialTargetMargin={targetMargin}
                         />
                     )}
 
