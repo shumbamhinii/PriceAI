@@ -2,28 +2,26 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
     Box, Button, TextField, Typography, List, ListItem, ListItemText,
     ListItemSecondaryAction, IconButton, Dialog, DialogTitle, DialogContent,
-    DialogActions,DialogContentText,  Snackbar,
-   CircularProgress, Alert, Grid, Card, CardContent, Divider
+    DialogActions, CircularProgress, Alert, Grid, Card, CardContent, Divider,
+    MenuItem, Select, FormControl, InputLabel // Added for dropdowns
 } from '@mui/material';
-import { Paper } from '@mui/material';
-import { MenuItem } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ClearIcon from '@mui/icons-material/Clear';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle'; // New icon for 'Use for Quotations'
-import { useNavigate } from 'react-router-dom'; // Import useNavigate for redirection
+import GppGoodIcon from '@mui/icons-material/GppGood'; // New icon for "Use for Quotations"
 import axios from 'axios';
-
-// IMPORTANT: Ensure this matches your backend URL.
-// For Render deployment, it should be your Render backend URL, e.g., 'https://priceaibback.onrender.com'
-const API_BASE_URL = 'https://priceaibback.onrender.com'; // Changed from localhost for deployment readiness
-
+import { useNavigate } from 'react-router-dom';
+const API_BASE_URL = 'https://priceaibback.onrender.com';
 
 // Helper function to calculate derived pricing metrics from raw snapshot data
 // IMPORTANT: This function is primarily for DISPLAYING comparison data within SnapshotManager.
 // The primary calculation logic for the main app should remain in PricingPage.jsx's calculatePrices.
 const calculateSnapshotPrices = (snapshotData) => {
+        // State for snapshot chosen for quotations
+        //const [selectedQuotationSnapshotId, setSelectedQuotationSnapshotId] = useState('');
+    
+        //const navigate = useNavigate(); // Initialize useNavigate hook
     const { total_cost, use_margin, target_profit, target_margin, use_breakdown, products, expenses } = snapshotData;
 
     // Ensure total_cost is a number
@@ -120,11 +118,11 @@ const calculateSnapshotPrices = (snapshotData) => {
                 profitContributionPerUnit = profitNeededFromCostPlusProducts / totalExpectedUnitsCostPlus;
                 fixedCostContributionPerUnit = fixedCostAllocatedToCostPlusProducts / totalExpectedUnitsCostPlus;
             } else if (costPlusBasedProducts.length === 1 && safeExpectedUnits > 0) {
-                   // Special case: if only one cost-plus product, it covers all remaining fixed and profit
-                   profitContributionPerUnit = profitNeededFromCostPlusProducts; // This should be total profit needed from this product
-                   fixedCostContributionPerUnit = fixedCostAllocatedToCostPlusProducts; // Total fixed cost needed from this product
-                   profitContributionPerUnit = profitContributionPerUnit / safeExpectedUnits; // per unit
-                   fixedCostContributionPerUnit = fixedCostContributionPerUnit / safeExpectedUnits; // per unit
+                     // Special case: if only one cost-plus product, it covers all remaining fixed and profit
+                     profitContributionPerUnit = profitNeededFromCostPlusProducts; // This should be total profit needed from this product
+                     fixedCostContributionPerUnit = fixedCostAllocatedToCostPlusProducts; // Total fixed cost needed from this product
+                     profitContributionPerUnit = profitContributionPerUnit / safeExpectedUnits; // per unit
+                     fixedCostContributionPerUnit = fixedCostContributionPerUnit / safeExpectedUnits; // per unit
             }
 
             suggestedProfitPerUnit = profitContributionPerUnit + fixedCostContributionPerUnit;
@@ -169,15 +167,18 @@ const SnapshotManager = ({
     currentPricingState,
     onSnapshotLoaded,
     onCalculatePrices, // Added to trigger recalculation in parent after loading
-    setActiveTab // To switch tabs after loading
+    setActiveTab, // To switch tabs after loading
+    onUseForQuotations // NEW PROP: Callback to pass snapshot data for quotations
 }) => {
     const [snapshotName, setSnapshotName] = useState('');
     const [savedSnapshots, setSavedSnapshots] = useState([]);
     const [openLoadDialog, setOpenLoadDialog] = useState(false);
     const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
     const [snapshotToDelete, setSnapshotToDelete] = useState(null);
-    const navigate = useNavigate(); // Hook for navigation
-
+    const [selectedQuotationSnapshotId, setSelectedQuotationSnapshotId] = useState(''); // NEW STATE for quotation selection
+       // const [selectedQuotationSnapshotId, setSelectedQuotationSnapshotId] = useState('');
+    
+        const navigate = useNavigate(); // Initialize useNavigate hook
     // New state for comparison feature
     const [selectedComparisonSnapshot1Id, setSelectedComparisonSnapshot1Id] = useState('');
     const [selectedComparisonSnapshot2Id, setSelectedComparisonSnapshot2Id] = useState('');
@@ -186,10 +187,7 @@ const SnapshotManager = ({
     const [comparisonSnapshot2Data, setComparisonSnapshot2Data] = useState(null);
     const [comparisonResults2, setComparisonResults2] = useState(null);
     const [comparisonLoading, setComparisonLoading] = useState(false);
-  const [openConfirmDialog, setOpenConfirmDialog] = useState(false);
-  const [selectedSnapshotForQuote, setSelectedSnapshotForQuote] = useState({ id: null, name: '' });
-  const [openSnackbar, setOpenSnackbar] = useState(false);
-  const [snackbarMessage, setSnackbarMessage] = useState('');
+
 
     const fetchSnapshots = useCallback(async () => {
         setLoading(true);
@@ -236,6 +234,7 @@ const SnapshotManager = ({
                 expected_units: parseFloat(p.expectedUnits) || 0,
                 cost_per_unit: parseFloat(p.costPerUnit) || 0,
                 calculation_method: p.calculationMethod, // Save the calculation method
+             orbital: p.orbital || 0, // Ensure all fields are saved correctly
             })),
             expenses: currentPricingState.useBreakdown ? currentPricingState.individualCosts.map(exp => ({
                 ...exp,
@@ -271,12 +270,17 @@ const SnapshotManager = ({
                     percentage: loadedPercentage, // This is for percentage-based input
                     expectedUnits: parseFloat(p.expected_units) || 0,
                     costPerUnit: parseFloat(p.cost_per_unit) || 0,
-                    calculationMethod: p.calculation_method || 'percentage', // Crucial: load the method
+                    calculationMethod: p.calculation_method || 'cost-plus', // Crucial: load the method
+                    orbital: parseFloat(p.orbital) || 0, // Load orbital
                     // These fields will be recalculated by PricingPage after load
                     suggestedProfit: 0,
                     price: 0,
                     unitsNeeded: 0,
+                    expected_units: 0,
+                    cost_per_unit:0,
+                    calculation_method: p.calculationMethod,
                     percentageRevenue: 0,
+
                 };
             });
             const expenses = (response.data.expenses || []).map(exp => ({
@@ -321,7 +325,7 @@ const SnapshotManager = ({
             await axios.delete(`${API_BASE_URL}/api/snapshots/${snapshotToDelete.id}`);
             setSuccessMessage(`Snapshot "${snapshotToDelete.name}" deleted successfully!`);
             fetchSnapshots(); // Refresh list
-            // If deleted snapshot was part of comparison, clear it
+            // If deleted snapshot was part of comparison or quotation, clear it
             if (selectedComparisonSnapshot1Id === snapshotToDelete.id) {
                 setSelectedComparisonSnapshot1Id('');
                 setComparisonSnapshot1Data(null);
@@ -331,6 +335,10 @@ const SnapshotManager = ({
                 setSelectedComparisonSnapshot2Id('');
                 setComparisonSnapshot2Data(null);
                 setComparisonResults2(null);
+            }
+            if (selectedQuotationSnapshotId === snapshotToDelete.id) { // NEW: Clear if deleted
+                setSelectedQuotationSnapshotId('');
+                onUseForQuotations(null); // Notify parent that the selected quotation snapshot is gone
             }
         } catch (err) {
             console.error('Error deleting snapshot:', err.response?.data?.message || err.message);
@@ -342,34 +350,64 @@ const SnapshotManager = ({
         }
     };
 
-    // New handler for "Use for Quotations" button
-const handleUseForQuotations = (id, name) => {
-  setSelectedSnapshotForQuote({ id, name });
-  setOpenConfirmDialog(true);
-};
-const handleConfirmProceed = () => {
-  // Logic to actually "proceed to quotations page"
-  // In a real application, you'd likely use React Router's `useNavigate` here:
-  // navigate(`/quotations?snapshotId=${selectedSnapshotForQuote.id}`);
+      // New handler for selecting snapshot for quotations
+    const handleSelectQuotationSnapshot = useCallback(async (snapshotId) => {
+        setSelectedQuotationSnapshotId(snapshotId); // Set the ID first
+        setLoading(true);
+        setError('');
+        setSuccessMessage('');
 
-  setSnackbarMessage(`Proceeding to quotations page using snapshot: ${selectedSnapshotForQuote.name} (ID: ${selectedSnapshotForQuote.id})`);
-  setOpenSnackbar(true);
-  setOpenConfirmDialog(false); // Close the dialog
-};
+        if (!snapshotId) {
+            // If clearing selection, just reset and return
+            setLoading(false);
+            setSuccessMessage('Quotation snapshot selection cleared.');
+            navigate('/qoutes', { state: { products: [] } }); // Navigate to quotations page with empty products
+            return;
+        }
 
-const handleCloseConfirmDialog = () => {
-  setOpenConfirmDialog(false);
-  setSelectedSnapshotForQuote({ id: null, name: '' }); // Clear selected snapshot
-};
+        try {
+            const response = await axios.get(`${API_BASE_URL}/api/snapshots/${snapshotId}`);
+            const fullSnapshotData = response.data.snapshot;
+            const products = response.data.products.map(p => ({
+                ...p,
+                revenue_percentage: parseFloat(p.revenue_percentage) || 0,
+                expected_units: parseFloat(p.expected_units) || 0,
+                cost_per_unit: parseFloat(p.cost_per_unit) || 0,
+                calculation_method: p.calculation_method || 'cost-plus',
+                orbital: parseFloat(p.orbital) || 0,
+            }));
+            const expenses = (response.data.expenses || []).map(exp => ({
+                ...exp,
+                amount: parseFloat(exp.amount) || 0
+            }));
 
-const handleCloseSnackbar = (event, reason) => {
-  if (reason === 'clickaway') {
-    return;
-  }
-  setOpenSnackbar(false);
-};
+            const combinedSnapshotData = {
+                ...fullSnapshotData,
+                total_cost: parseFloat(fullSnapshotData.total_cost) || 0,
+                target_profit: parseFloat(fullSnapshotData.target_profit) || 0,
+                target_margin: parseFloat(fullSnapshotData.target_margin) || 0,
+                products,
+                expenses
+            };
 
-    // Comparison Logic
+            // Calculate the prices for these products using your existing calculation logic
+            const calculatedResults = calculateSnapshotPrices(combinedSnapshotData);
+
+            setSuccessMessage(`Snapshot "${combinedSnapshotData.name}" selected for quotations.`);
+
+            // Navigate to the quotations page, passing the calculated products
+            navigate('/qoutes', { state: { products: calculatedResults.calculatedProducts, snapshotName: combinedSnapshotData.name } });
+
+        } catch (err) {
+            console.error('Error fetching/processing snapshot for quotations:', err.response?.data?.message || err.message);
+            setError(`Failed to load snapshot for quotations: ${err.response?.data?.message || err.message}`);
+            setSelectedQuotationSnapshotId(''); // Clear selection on error
+        } finally {
+            setLoading(false);
+        }
+    }, [setError, setSuccessMessage, navigate]);
+
+    // Comparison Logic (remains largely the same, but includes orbital for display)
     const fetchAndProcessComparisonSnapshot = useCallback(async (snapshotId, setSnapshotData, setComparisonResults, dataIndex) => {
         if (!snapshotId) {
             setSnapshotData(null);
@@ -388,6 +426,7 @@ const handleCloseSnackbar = (event, reason) => {
                 expected_units: parseFloat(p.expected_units) || 0,
                 cost_per_unit: parseFloat(p.cost_per_unit) || 0,
                 calculation_method: p.calculation_method || 'percentage', // Ensure calculation_method is present
+                orbital: parseFloat(p.orbital) || 0, // Include orbital here for comparison display
             }));
             const expenses = (response.data.expenses || []).map(exp => ({
                 ...exp,
@@ -430,6 +469,7 @@ const handleCloseSnackbar = (event, reason) => {
         setSelectedComparisonSnapshot1Id('');
         setSelectedComparisonSnapshot2Id('');
         setComparisonSnapshot1Data(null);
+        setComparisonSnapshot2Data(null);
         setComparisonResults1(null);
         setComparisonResults2(null);
         setSuccessMessage('Comparison cleared.');
@@ -523,6 +563,10 @@ const handleCloseSnackbar = (event, reason) => {
                                             <Typography variant="body2">Calculated Unit Price: R{product.suggestedPrice.toFixed(2)}</Typography>
                                             <Typography variant="body2">Actual Product Margin: {product.percentageRevenue.toFixed(2)}%</Typography>
                                         </>
+                                    )}
+                                    {/* Display orbital if it exists and is meaningful */}
+                                    {product.orbital > 0 && (
+                                        <Typography variant="body2">Orbital: {product.orbital.toFixed(2)}</Typography>
                                     )}
                                 </Box>
                             ))
@@ -626,10 +670,10 @@ const handleCloseSnackbar = (event, reason) => {
                 <ListItem>
                     <ListItemText primary={
                         <Typography>
-                            Both snapshots project similar total revenue of R{s1.totalRevenue.toFixed(2)}.
+                            Both snapshots project similar total revenue (R{s1.totalRevenue.toFixed(2)}).
                             <br />
                             <Typography variant="body2" color="text.secondary">
-                                **Insight:** With similar revenue, the decision might hinge on operational efficiency or ease of implementation.
+                                **Insight:** Consider which snapshot achieves this revenue with lower risk or operational complexity.
                             </Typography>
                         </Typography>
                     } />
@@ -637,30 +681,32 @@ const handleCloseSnackbar = (event, reason) => {
             );
         }
 
-        // 3. Cost Comparison
-        if (s1.actualCost < s2.actualCost) {
+        // 3. Cost-effectiveness (Revenue per unit of cost)
+        const s1CostEffectiveness = s1.totalRevenue / s1.actualCost;
+        const s2CostEffectiveness = s2.totalRevenue / s2.actualCost;
+        if (s1CostEffectiveness > s2CostEffectiveness) {
             insights.push(
                 <ListItem>
                     <ListItemText primary={
                         <Typography>
-                            <Typography component="span" fontWeight="bold">{s1Name}</Typography> involves a lower total monthly cost (R{s1.actualCost.toFixed(2)}) compared to <Typography component="span" fontWeight="bold">{s2Name}</Typography> (R{s2.actualCost.toFixed(2)}).
+                            <Typography component="span" fontWeight="bold">{s1Name}</Typography> is more cost-effective (R{s1CostEffectiveness.toFixed(2)} revenue per R1 cost) than <Typography component="span" fontWeight="bold">{s2Name}</Typography> (R{s2CostEffectiveness.toFixed(2)} revenue per R1 cost).
                             <br />
                             <Typography variant="body2" color="text.secondary">
-                                **Insight:** If cost efficiency is paramount, <Typography component="span" fontWeight="bold">{s1Name}</Typography> represents a more lean operation.
+                                **Insight:** <Typography component="span" fontWeight="bold">{s1Name}</Typography> is more efficient at converting costs into revenue.
                             </Typography>
                         </Typography>
                     } />
                 </ListItem>
             );
-        } else if (s2.actualCost < s1.actualCost) {
+        } else if (s2CostEffectiveness > s1CostEffectiveness) {
             insights.push(
                 <ListItem>
                     <ListItemText primary={
                         <Typography>
-                            <Typography component="span" fontWeight="bold">{s2Name}</Typography> involves a lower total monthly cost (R{s2.actualCost.toFixed(2)}) compared to <Typography component="span" fontWeight="bold">{s1Name}</Typography> (R{s1.actualCost.toFixed(2)}).
+                            <Typography component="span" fontWeight="bold">{s2Name}</Typography> is more cost-effective (R{s2CostEffectiveness.toFixed(2)} revenue per R1 cost) than <Typography component="span" fontWeight="bold">{s1Name}</Typography> (R{s1CostEffectiveness.toFixed(2)} revenue per R1 cost).
                             <br />
                             <Typography variant="body2" color="text.secondary">
-                                **Insight:** To reduce fixed overheads, consider the approach in <Typography component="span" fontWeight="bold">{s2Name}</Typography>.
+                                **Insight:** <Typography component="span" fontWeight="bold">{s2Name}</Typography> shows better operational efficiency.
                             </Typography>
                         </Typography>
                     } />
@@ -671,10 +717,10 @@ const handleCloseSnackbar = (event, reason) => {
                 <ListItem>
                     <ListItemText primary={
                         <Typography>
-                            Both snapshots have similar total monthly costs of R{s1.actualCost.toFixed(2)}.
+                            Both snapshots show similar cost-effectiveness (R{s1CostEffectiveness.toFixed(2)} revenue per R1 cost).
                             <br />
                             <Typography variant="body2" color="text.secondary">
-                                **Insight:** Costs are comparable; focus on revenue and profit generation.
+                                **Insight:** Look for other differentiators or areas for improvement in either model.
                             </Typography>
                         </Typography>
                     } />
@@ -682,246 +728,310 @@ const handleCloseSnackbar = (event, reason) => {
             );
         }
 
-        // 4. Product-level insights (example: compare a specific product's price or margin)
-        // This would require more complex matching of products by name/ID between snapshots.
-        // For now, let's keep it high-level.
+        // 4. Product-level comparison (e.g., higher profit products)
+        const commonProducts = s1.calculatedProducts.filter(p1 =>
+            s2.calculatedProducts.some(p2 => p2.name === p1.name)
+        );
+
+        commonProducts.forEach(p1 => {
+            const p2 = s2.calculatedProducts.find(prod => prod.name === p1.name);
+            if (p2) {
+                if (p1.suggestedPrice > p2.suggestedPrice) {
+                    insights.push(
+                        <ListItem>
+                            <ListItemText primary={
+                                <Typography variant="body2">
+                                    <Typography component="span" fontWeight="bold">{p1.name}</Typography> is priced higher in <Typography component="span" fontWeight="bold">{s1Name}</Typography> (R{p1.suggestedPrice.toFixed(2)}) compared to <Typography component="span" fontWeight="bold">{s2Name}</Typography> (R{p2.suggestedPrice.toFixed(2)}).
+                                </Typography>
+                            } />
+                        </ListItem>
+                    );
+                } else if (p2.suggestedPrice > p1.suggestedPrice) {
+                    insights.push(
+                        <ListItem>
+                            <ListItemText primary={
+                                <Typography variant="body2">
+                                    <Typography component="span" fontWeight="bold">{p1.name}</Typography> is priced higher in <Typography component="span" fontWeight="bold">{s2Name}</Typography> (R{p2.suggestedPrice.toFixed(2)}) compared to <Typography component="span" fontWeight="bold">{s1Name}</Typography> (R{p1.suggestedPrice.toFixed(2)}).
+                                </Typography>
+                            } />
+                        </ListItem>
+                    );
+                }
+
+                if (p1.percentageRevenue > p2.percentageRevenue) {
+                    insights.push(
+                        <ListItem>
+                            <ListItemText primary={
+                                <Typography variant="body2">
+                                    <Typography component="span" fontWeight="bold">{p1.name}</Typography> yields a higher actual product margin in <Typography component="span" fontWeight="bold">{s1Name}</Typography> ({p1.percentageRevenue.toFixed(2)}%) vs. <Typography component="span" fontWeight="bold">{s2Name}</Typography> ({p2.percentageRevenue.toFixed(2)}%).
+                                </Typography>
+                            } />
+                        </ListItem>
+                    );
+                } else if (p2.percentageRevenue > p1.percentageRevenue) {
+                    insights.push(
+                        <ListItem>
+                            <ListItemText primary={
+                                <Typography variant="body2">
+                                    <Typography component="span" fontWeight="bold">{p1.name}</Typography> yields a higher actual product margin in <Typography component="span" fontWeight="bold">{s2Name}</Typography> ({p2.percentageRevenue.toFixed(2)}%) vs. <Typography component="span" fontWeight="bold">{s1Name}</Typography> ({p1.percentageRevenue.toFixed(2)}%).
+                                </Typography>
+                            } />
+                        </ListItem>
+                    );
+                }
+            }
+        });
+
+        if (insights.length === 0) {
+            insights.push(
+                <ListItem>
+                    <ListItemText primary={
+                        <Typography color="text.secondary">No specific key differences found or products do not overlap significantly.</Typography>
+                    } />
+                </ListItem>
+            );
+        }
 
         return (
-            <Grid item xs={12}>
-                <Card elevation={2} sx={{ p: 3, mt: 3, backgroundColor: '#e8f5e9' }}>
-                    <Typography variant="h5" gutterBottom>Comparison Insights</Typography>
-                    <List dense>
-                        {insights.length > 0 ? insights : (
-                            <ListItem><ListItemText primary="No specific insights generated or values are too similar." /></ListItem>
-                        )}
-                    </List>
-                </Card>
-            </Grid>
+            <Box mt={4}>
+                <Typography variant="h6" gutterBottom>Comparison Insights</Typography>
+                <List dense>
+                    {insights}
+                </List>
+            </Box>
         );
     };
 
 
     return (
         <Box sx={{ p: 3 }}>
-            <Typography variant="h4" gutterBottom>Snapshot Manager</Typography>
-
-            {loading && <CircularProgress sx={{ my: 2 }} />}
-            {comparisonLoading && <CircularProgress size={24} sx={{ my: 2, ml: 2 }} />}
-            {setError && <Alert severity="error" sx={{ my: 2 }}>{setError}</Alert>}
-            {setSuccessMessage && <Alert severity="success" sx={{ my: 2 }}>{setSuccessMessage}</Alert>}
+            {loading && <CircularProgress sx={{ mb: 2 }} />}
+            {/* Error and Success Alerts */}
+            {setError && <Alert severity="error" sx={{ mb: 2 }}>{setError}</Alert>}
+            {setSuccessMessage && <Alert severity="success" sx={{ mb: 2 }}>{setSuccessMessage}</Alert>}
 
             {/* Save Snapshot Section */}
-            <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
-                <Typography variant="h6" gutterBottom>Save Current Pricing Setup</Typography>
-                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                    <TextField
-                        label="Snapshot Name"
-                        variant="outlined"
-                        value={snapshotName}
-                        onChange={(e) => setSnapshotName(e.target.value)}
-                        sx={{ flexGrow: 1 }}
-                    />
-                    <Button
-                        variant="contained"
-                        startIcon={<SaveIcon />}
-                        onClick={handleSaveSnapshot}
-                        disabled={loading || !snapshotName.trim()}
-                    >
-                        Save Snapshot
-                    </Button>
-                </Box>
-            </Paper>
-
-            {/* Load Snapshots Section */}
-            <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
-                <Typography variant="h6" gutterBottom>Load Existing Snapshot</Typography>
+            <Typography variant="h5" gutterBottom>Manage Pricing Snapshots</Typography>
+            <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', gap: 2 }}>
+                <TextField
+                    label="Snapshot Name"
+                    variant="outlined"
+                    value={snapshotName}
+                    onChange={(e) => setSnapshotName(e.target.value)}
+                    sx={{ flexGrow: 1 }}
+                    disabled={loading}
+                />
+                <Button
+                    variant="contained"
+                    startIcon={<SaveIcon />}
+                    onClick={handleSaveSnapshot}
+                    disabled={loading || !snapshotName.trim()}
+                >
+                    Save Current Pricing
+                </Button>
                 <Button
                     variant="outlined"
                     startIcon={<FolderOpenIcon />}
-                    onClick={() => {
-                        fetchSnapshots(); // Refresh list just before opening
-                        setOpenLoadDialog(true);
-                    }}
-                    disabled={loading}
+                    onClick={() => setOpenLoadDialog(true)}
+                    disabled={loading || savedSnapshots.length === 0}
                 >
                     Load Snapshot
                 </Button>
+            </Box>
 
-                <Dialog open={openLoadDialog} onClose={() => setOpenLoadDialog(false)} fullWidth maxWidth="md">
-                    <DialogTitle>Load Snapshot</DialogTitle>
-                    <DialogContent>
-                        {loading ? (
-                            <Box display="flex" justifyContent="center" alignItems="center" height={100}>
-                                <CircularProgress />
-                            </Box>
-                        ) : savedSnapshots.length === 0 ? (
-                            <Typography>No snapshots saved yet.</Typography>
-                        ) : (
-                            <List>
-                                {savedSnapshots.map((snapshot) => (
-                                    <ListItem key={snapshot.id} divider>
-                                        <ListItemText
-                                            primary={snapshot.name}
-                                            secondary={`Saved on: ${new Date(snapshot.created_at).toLocaleDateString()} at ${new Date(snapshot.created_at).toLocaleTimeString()}`}
-                                        />
-                                        <ListItemSecondaryAction>
-                                            <Button
-                                                variant="outlined"
-                                                size="small"
-                                                onClick={() => handleLoadSnapshot(snapshot.id)}
-                                                sx={{ mr: 1 }}
-                                            >
-                                                Load
-                                            </Button>
-                                               <Button
-      variant="contained"
-      color="primary"
-      size="small"
-      startIcon={<CheckCircleIcon />}
-      onClick={() => handleUseForQuotations(snapshot.id, snapshot.name)}
-      sx={{ mr: 1 }}
-    >
-      Use for Quotations
-    </Button>
-    <Dialog
-      open={openConfirmDialog}
-      onClose={handleCloseConfirmDialog}
-      aria-labelledby="confirm-dialog-title"
-      aria-describedby="confirm-dialog-description"
-    >
-      <DialogTitle id="confirm-dialog-title">Confirm Action</DialogTitle>
-      <DialogContent>
-        <DialogContentText id="confirm-dialog-description">
-          Are you sure you want to proceed to the quotations page using snapshot:
-          <br />
-          <strong>{selectedSnapshotForQuote.name}</strong> (ID: {selectedSnapshotForQuote.id})?
-        </DialogContentText>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={handleCloseConfirmDialog} color="primary">
-          Cancel
-        </Button>
-        <Button onClick={handleConfirmProceed} color="primary" autoFocus>
-          Proceed
-        </Button>
-      </DialogActions>
-    </Dialog>
-    {/* Snackbar for confirmation message */}
-    <Snackbar
-      open={openSnackbar}
-      autoHideDuration={6000} // How long the snackbar stays open
-      onClose={handleCloseSnackbar}
-      anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }} // Position of the snackbar
-    >
-      <Alert onClose={handleCloseSnackbar} severity="success" sx={{ width: '100%' }}>
-        {snackbarMessage}
-      </Alert>
-    </Snackbar>
-    
-                                            <IconButton
-                                                edge="end"
-                                                aria-label="delete"
-                                                onClick={() => {
-                                                    setSnapshotToDelete(snapshot);
-                                                    setOpenDeleteDialog(true);
-                                                }}
-                                            >
-                                                <DeleteIcon color="error" />
-                                            </IconButton>
-                                        </ListItemSecondaryAction>
-                                    </ListItem>
-                                ))}
-                            </List>
-                        )}
-                    </DialogContent>
-                    <DialogActions>
-                        <Button onClick={() => setOpenLoadDialog(false)}>Close</Button>
-                    </DialogActions>
-                </Dialog>
-            </Paper>
+            <Divider sx={{ my: 4 }} />
+
+            {/* New Section: Select Snapshot for Quotations */}
+            <Typography variant="h5" gutterBottom>Select Snapshot for Quotations</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Choose a saved pricing snapshot to use its product list and calculated prices for generating quotations.
+            </Typography>
+            <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', gap: 2 }}>
+                <FormControl fullWidth disabled={loading || savedSnapshots.length === 0}>
+                    <InputLabel id="quotation-snapshot-select-label">Snapshot for Quotations</InputLabel>
+                    <Select
+                        labelId="quotation-snapshot-select-label"
+                        id="quotation-snapshot-select"
+                        value={selectedQuotationSnapshotId}
+                        label="Snapshot for Quotations"
+                        onChange={(e) => handleSelectQuotationSnapshot(e.target.value)}
+                    >
+                        <MenuItem value="">
+                            <em>None Selected</em>
+                        </MenuItem>
+                        {savedSnapshots.map((snapshot) => (
+                            <MenuItem key={snapshot.id} value={snapshot.id}>
+                                {snapshot.name} ({new Date(snapshot.created_at).toLocaleDateString()})
+                            </MenuItem>
+                        ))}
+                    </Select>
+                </FormControl>
+                {selectedQuotationSnapshotId && (
+                    <Button
+                        variant="outlined"
+                        color="error"
+                        startIcon={<ClearIcon />}
+                        onClick={() => handleSelectQuotationSnapshot('')}
+                        disabled={loading}
+                    >
+                        Clear
+                    </Button>
+                )}
+            </Box>
+
+            <Divider sx={{ my: 4 }} />
+
+            {/* Comparison Section */}
+            <Typography variant="h5" gutterBottom>Compare Snapshots</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Select two snapshots to compare their overall metrics and product pricing strategies.
+            </Typography>
+            <Grid container spacing={3} sx={{ mb: 4 }}>
+                <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth disabled={comparisonLoading || savedSnapshots.length < 1}>
+                        <InputLabel id="comparison-snapshot1-select-label">Snapshot 1</InputLabel>
+                        <Select
+                            labelId="comparison-snapshot1-select-label"
+                            id="comparison-snapshot1-select"
+                            value={selectedComparisonSnapshot1Id}
+                            label="Snapshot 1"
+                            onChange={(e) => setSelectedComparisonSnapshot1Id(e.target.value)}
+                        >
+                            <MenuItem value="">
+                                <em>None Selected</em>
+                            </MenuItem>
+                            {savedSnapshots.map((snapshot) => (
+                                <MenuItem key={snapshot.id} value={snapshot.id}>
+                                    {snapshot.name} ({new Date(snapshot.created_at).toLocaleDateString()})
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth disabled={comparisonLoading || savedSnapshots.length < 2}>
+                        <InputLabel id="comparison-snapshot2-select-label">Snapshot 2</InputLabel>
+                        <Select
+                            labelId="comparison-snapshot2-select-label"
+                            id="comparison-snapshot2-select"
+                            value={selectedComparisonSnapshot2Id}
+                            label="Snapshot 2"
+                            onChange={(e) => setSelectedComparisonSnapshot2Id(e.target.value)}
+                        >
+                            <MenuItem value="">
+                                <em>None Selected</em>
+                            </MenuItem>
+                            {savedSnapshots.map((snapshot) => (
+                                <MenuItem key={snapshot.id} value={snapshot.id}>
+                                    {snapshot.name} ({new Date(snapshot.created_at).toLocaleDateString()})
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                </Grid>
+            </Grid>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 4 }}>
+                <Button
+                    variant="outlined"
+                    color="error"
+                    startIcon={<ClearIcon />}
+                    onClick={clearComparison}
+                    disabled={comparisonLoading || (!selectedComparisonSnapshot1Id && !selectedComparisonSnapshot2Id)}
+                >
+                    Clear Comparison
+                </Button>
+            </Box>
+
+            {(selectedComparisonSnapshot1Id || selectedComparisonSnapshot2Id) && (
+                <Box mt={4}>
+                    <Typography variant="h6" gutterBottom>Comparison Overview</Typography>
+                    {comparisonLoading && <CircularProgress />}
+                    <Grid container spacing={3}>
+                        {renderComparisonColumn("Snapshot 1", comparisonSnapshot1Data, comparisonResults1, 1)}
+                        {renderComparisonColumn("Snapshot 2", comparisonSnapshot2Data, comparisonResults2, 2)}
+                    </Grid>
+                    {renderComparisonInsights()}
+                </Box>
+            )}
+
+
+            {/* Load Snapshot Dialog */}
+            <Dialog open={openLoadDialog} onClose={() => setOpenLoadDialog(false)} fullWidth maxWidth="sm">
+                <DialogTitle>Load Pricing Snapshot</DialogTitle>
+                <DialogContent>
+                    {loading && <CircularProgress />}
+                    {!loading && savedSnapshots.length === 0 && (
+                        <Typography>No snapshots saved yet.</Typography>
+                    )}
+                    <List>
+                        {savedSnapshots.map((snapshot) => (
+                            <ListItem
+                                key={snapshot.id}
+                                secondaryAction={
+                                    <IconButton
+                                        edge="end"
+                                        aria-label="delete"
+                                        onClick={() => {
+                                            setSnapshotToDelete(snapshot);
+                                            setOpenDeleteDialog(true);
+                                        }}
+                                    >
+                                        <DeleteIcon />
+                                    </IconButton>
+                                }
+                            >
+                                <ListItemText
+                                    primary={snapshot.name}
+                                    secondary={`Saved on: ${new Date(snapshot.created_at).toLocaleDateString()} at ${new Date(snapshot.created_at).toLocaleTimeString()}`}
+                                />
+                                <ListItemSecondaryAction>
+                                    <Button
+                                        variant="outlined"
+                                        size="small"
+                                        onClick={() => handleLoadSnapshot(snapshot.id)}
+                                        disabled={loading}
+                                        sx={{ mr: 1 }}
+                                    >
+                                        Load
+                                    </Button>
+                                    {/* NEW: Button to use for Quotations directly from Load dialog */}
+                                    <Button
+                                        variant="contained"
+                                        size="small"
+                                        startIcon={<GppGoodIcon />}
+                                        onClick={() => {
+                                            handleSelectQuotationSnapshot(snapshot.id);
+                                            setOpenLoadDialog(false); // Close dialog after selection
+                                        }}
+                                        disabled={loading || selectedQuotationSnapshotId === snapshot.id}
+                                    >
+                                        Use for Quotations
+                                    </Button>
+                                </ListItemSecondaryAction>
+                            </ListItem>
+                        ))}
+                    </List>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setOpenLoadDialog(false)}>Cancel</Button>
+                </DialogActions>
+            </Dialog>
 
             {/* Delete Confirmation Dialog */}
             <Dialog open={openDeleteDialog} onClose={() => setOpenDeleteDialog(false)}>
                 <DialogTitle>Confirm Delete</DialogTitle>
                 <DialogContent>
-                    <Typography>Are you sure you want to delete snapshot "<strong>{snapshotToDelete?.name}</strong>"? This action cannot be undone.</Typography>
+                    <Typography>Are you sure you want to delete snapshot "{snapshotToDelete?.name}"?</Typography>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setOpenDeleteDialog(false)} color="primary">Cancel</Button>
-                    <Button onClick={handleDeleteSnapshot} color="error" variant="contained">Delete</Button>
+                    <Button onClick={() => setOpenDeleteDialog(false)} color="primary">
+                        Cancel
+                    </Button>
+                    <Button onClick={handleDeleteSnapshot} color="error" autoFocus>
+                        Delete
+                    </Button>
                 </DialogActions>
             </Dialog>
-
-            {/* Comparison Section (as it was before) */}
-            <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
-                <Typography variant="h6" gutterBottom>Compare Snapshots</Typography>
-                <Grid container spacing={2} alignItems="center" mb={2}>
-                    <Grid item xs={12} sm={5}>
-                        <TextField
-                            select
-                            label="Snapshot 1"
-                            fullWidth
-                            value={selectedComparisonSnapshot1Id}
-                            onChange={(e) => setSelectedComparisonSnapshot1Id(e.target.value)}
-                            disabled={comparisonLoading}
-                            size="small"
-                        >
-                            <MenuItem value="">
-                                <em>None</em>
-                            </MenuItem>
-                            {savedSnapshots.map((snapshot) => (
-                                <MenuItem key={snapshot.id} value={snapshot.id}>
-                                    {snapshot.name}
-                                </MenuItem>
-                            ))}
-                        </TextField>
-                    </Grid>
-                    <Grid item xs={12} sm={5}>
-                        <TextField
-                            select
-                            label="Snapshot 2"
-                            fullWidth
-                            value={selectedComparisonSnapshot2Id}
-                            onChange={(e) => setSelectedComparisonSnapshot2Id(e.target.value)}
-                            disabled={comparisonLoading}
-                            size="small"
-                        >
-                            <MenuItem value="">
-                                <em>None</em>
-                            </MenuItem>
-                            {savedSnapshots.map((snapshot) => (
-                                <MenuItem key={snapshot.id} value={snapshot.id}>
-                                    {snapshot.name}
-                                </MenuItem>
-                            ))}
-                        </TextField>
-                    </Grid>
-                    <Grid item xs={12} sm={2}>
-                        <Button
-                            variant="outlined"
-                            onClick={clearComparison}
-                            startIcon={<ClearIcon />}
-                            disabled={comparisonLoading || (!selectedComparisonSnapshot1Id && !selectedComparisonSnapshot2Id)}
-                            fullWidth
-                        >
-                            Clear
-                        </Button>
-                    </Grid>
-                </Grid>
-
-                {(comparisonLoading && (selectedComparisonSnapshot1Id || selectedComparisonSnapshot2Id)) && (
-                    <Box display="flex" justifyContent="center" alignItems="center" my={2}>
-                        <CircularProgress />
-                        <Typography ml={2}>Loading comparison data...</Typography>
-                    </Box>
-                )}
-
-                <Grid container spacing={3}>
-                    {renderComparisonColumn("Snapshot 1", comparisonSnapshot1Data, comparisonResults1, selectedComparisonSnapshot1Id)}
-                    {renderComparisonColumn("Snapshot 2", comparisonSnapshot2Data, comparisonResults2, selectedComparisonSnapshot2Id)}
-                    {renderComparisonInsights()}
-                </Grid>
-            </Paper>
         </Box>
     );
 };
